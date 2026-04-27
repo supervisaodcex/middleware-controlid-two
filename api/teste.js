@@ -1,48 +1,40 @@
-// api/teste.js
 export default async function handler(req, res) {
-  const cpf = req.query.cpf || '53944108876';
-  const token = process.env.TWO_AUTH_TOKEN || '';
+  const token = (process.env.TWO_AUTH_TOKEN || '').trim();
 
-  // Diagnóstico do token
-  const tokenInfo = {
-    tamanho:        token.length,
-    primeiros_4:    token.slice(0, 4),
-    ultimos_4:      token.slice(-4),
-    tem_espaco:     token.includes(' '),
-    tem_newline:    token.includes('\n'),
-  };
-
-  // Testa o GET (listar apontamentos) para verificar o token
-  const respostaGet = await fetch('https://api1.tradingworks.net/v1/attendances?Language=pt-br', {
-    headers: { 'AUTH-TOKEN': token.trim() },
-  });
-  const textoGet = await respostaGet.text();
-
-  // Testa o POST (adicionar apontamento)
-  const agora = new Date();
-  const payload = [{
-    CPF: cpf.replace(/\D/g, ''),
-    DataMarcacao: agora.toISOString().split('T')[0],
-    HoraMarcacao: agora.toTimeString().slice(0, 5),
-    NumeroREP: 'TESTE',
-    NSR: '0',
-  }];
-
-  const respostaPost = await fetch('https://api1.tradingworks.net/v1/attendances/add', {
-    method: 'POST',
-    headers: {
-      'AUTH-TOKEN':   token.trim(),
-      'Content-Type': 'application/json',
+  // Testa 3 variações de autenticação para descobrir qual o TWO aceita
+  const testes = [
+    {
+      nome: 'AUTH-TOKEN no header',
+      headers: { 'AUTH-TOKEN': token, 'Content-Type': 'application/json' },
     },
-    body: JSON.stringify(payload),
-  });
-  const textoPost = await respostaPost.text();
+    {
+      nome: 'Authorization Bearer',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    },
+    {
+      nome: 'Authorization sem Bearer',
+      headers: { 'Authorization': token, 'Content-Type': 'application/json' },
+    },
+  ];
 
-  return res.status(200).json({
-    token_info:      tokenInfo,
-    get_status:      respostaGet.status,
-    get_resposta:    textoGet.slice(0, 300) || '(vazio)',
-    post_status:     respostaPost.status,
-    post_resposta:   textoPost || '(vazio)',
-  });
+  const resultados = [];
+
+  for (const teste of testes) {
+    const r = await fetch('https://api1.tradingworks.net/v1/attendances?Language=pt-br', {
+      headers: teste.headers,
+    });
+
+    const headersResposta = {};
+    r.headers.forEach((v, k) => { headersResposta[k] = v; });
+    const corpo = await r.text();
+
+    resultados.push({
+      nome:    teste.nome,
+      status:  r.status,
+      headers: headersResposta,
+      corpo:   corpo.slice(0, 200) || '(vazio)',
+    });
+  }
+
+  return res.status(200).json({ resultados });
 }
