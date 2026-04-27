@@ -6,17 +6,35 @@
 const TWO_AUTH_TOKEN = process.env.TWO_AUTH_TOKEN;
 const TWO_API_URL = 'https://api1.tradingworks.net/v1/attendances/add';
 
+// Lê o body bruto da requisição (necessário no Vercel)
+async function lerBody(req) {
+  return new Promise((resolve, reject) => {
+    if (req.body && typeof req.body === 'object') {
+      return resolve(req.body);
+    }
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      try {
+        resolve(data ? JSON.parse(data) : {});
+      } catch (e) {
+        reject(new Error('JSON inválido no body: ' + data));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
 export default async function handler(req, res) {
 
-  // Apenas POST é aceito
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
   }
 
-  console.log('📥 Webhook recebido do iDSecure:', JSON.stringify(req.body, null, 2));
-
   try {
-    const evento = req.body;
+    const evento = await lerBody(req);
+
+    console.log('📥 Webhook recebido do iDSecure:', JSON.stringify(evento, null, 2));
 
     // --- Extrai o CPF ---
     const cpfBruto =
