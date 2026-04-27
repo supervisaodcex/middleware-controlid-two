@@ -3,16 +3,20 @@
 const TWO_AUTH_TOKEN = process.env.TWO_AUTH_TOKEN;
 const TWO_API_URL = 'https://api1.tradingworks.net/v1/attendances/add';
 
-// Lê o body bruto da requisição (evita erro de JSON vazio)
+// Desativa o body parser automático do Vercel
+export const config = {
+  api: { bodyParser: false },
+};
+
 function lerBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', chunk => (data += chunk));
+    req.on('data', chunk => (data += chunk.toString()));
     req.on('end', () => {
       try {
         resolve(data ? JSON.parse(data) : {});
       } catch (e) {
-        reject(new Error('JSON inválido no body: ' + data));
+        reject(new Error('JSON inválido: ' + data));
       }
     });
     req.on('error', reject);
@@ -25,36 +29,31 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Usa req.body se já veio parseado, senão lê manualmente
-    const evento = req.body && Object.keys(req.body).length > 0
-      ? req.body
-      : await lerBody(req);
+    const evento = await lerBody(req);
 
     console.log('📥 Webhook recebido:', JSON.stringify(evento, null, 2));
 
-    // --- Extrai CPF (aceita maiúsculo ou minúsculo) ---
     const cpfBruto =
-      evento.cpf        ||
-      evento.CPF        ||
-      evento.document   ||
+      evento.cpf         ||
+      evento.CPF         ||
+      evento.document    ||
       evento.person?.cpf ||
       null;
 
     if (!cpfBruto) {
       return res.status(400).json({
-        error: 'CPF não encontrado no payload',
+        error: 'CPF não encontrado',
         campos_recebidos: Object.keys(evento),
       });
     }
 
     const cpf = String(cpfBruto).replace(/\D/g, '');
 
-    // --- Extrai data/hora (usa agora como fallback) ---
     const timestampBruto =
-      evento.time       ||
-      evento.dateTime   ||
-      evento.date_time  ||
-      evento.timestamp  ||
+      evento.time      ||
+      evento.dateTime  ||
+      evento.date_time ||
+      evento.timestamp ||
       new Date().toISOString();
 
     const dataHora     = new Date(timestampBruto);
@@ -62,8 +61,8 @@ export default async function handler(req, res) {
     const HoraMarcacao = dataHora.toTimeString().slice(0, 5);
 
     const payloadTWO = [{
-      NumeroREP: String(evento.deviceId || evento.device_id || ''),
-      NSR:       String(evento.id || evento.logId || ''),
+      NumeroREP: String(evento.deviceId || ''),
+      NSR:       String(evento.id || ''),
       CPF:       cpf,
       DataMarcacao,
       HoraMarcacao,
