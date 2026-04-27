@@ -1,19 +1,13 @@
-// ============================================================
-//  VERCEL SERVERLESS — Control iD (iDSecure) → TWO
-//  Arquivo: api/webhook-controlid.js
-// ============================================================
+// api/webhook-controlid.js
 
 const TWO_AUTH_TOKEN = process.env.TWO_AUTH_TOKEN;
 const TWO_API_URL = 'https://api1.tradingworks.net/v1/attendances/add';
 
-// Lê o body bruto da requisição (necessário no Vercel)
-async function lerBody(req) {
+// Lê o body bruto da requisição (evita erro de JSON vazio)
+function lerBody(req) {
   return new Promise((resolve, reject) => {
-    if (req.body && typeof req.body === 'object') {
-      return resolve(req.body);
-    }
     let data = '';
-    req.on('data', chunk => { data += chunk; });
+    req.on('data', chunk => (data += chunk));
     req.on('end', () => {
       try {
         resolve(data ? JSON.parse(data) : {});
@@ -26,51 +20,49 @@ async function lerBody(req) {
 }
 
 export default async function handler(req, res) {
-
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
   }
 
   try {
-    const evento = await lerBody(req);
+    // Usa req.body se já veio parseado, senão lê manualmente
+    const evento = req.body && Object.keys(req.body).length > 0
+      ? req.body
+      : await lerBody(req);
 
-    console.log('📥 Webhook recebido do iDSecure:', JSON.stringify(evento, null, 2));
+    console.log('📥 Webhook recebido:', JSON.stringify(evento, null, 2));
 
-    // --- Extrai o CPF ---
+    // --- Extrai CPF (aceita maiúsculo ou minúsculo) ---
     const cpfBruto =
       evento.cpf        ||
+      evento.CPF        ||
       evento.document   ||
       evento.person?.cpf ||
-      evento.user?.cpf  ||
       null;
 
     if (!cpfBruto) {
-      console.error('❌ CPF não encontrado. Campos recebidos:', Object.keys(evento));
-      return res.status(400).json({ error: 'CPF não encontrado no payload' });
+      return res.status(400).json({
+        error: 'CPF não encontrado no payload',
+        campos_recebidos: Object.keys(evento),
+      });
     }
 
-    const cpf = cpfBruto.replace(/\D/g, '');
+    const cpf = String(cpfBruto).replace(/\D/g, '');
 
-    // --- Extrai data e hora ---
+    // --- Extrai data/hora (usa agora como fallback) ---
     const timestampBruto =
       evento.time       ||
       evento.dateTime   ||
       evento.date_time  ||
       evento.timestamp  ||
-      null;
+      new Date().toISOString();
 
-    if (!timestampBruto) {
-      console.error('❌ Data/hora não encontrada. Campos recebidos:', Object.keys(evento));
-      return res.status(400).json({ error: 'Data/hora não encontrada no payload' });
-    }
+    const dataHora     = new Date(timestampBruto);
+    const DataMarcacao = dataHora.toISOString().split('T')[0];
+    const HoraMarcacao = dataHora.toTimeString().slice(0, 5);
 
-    const dataHora = new Date(timestampBruto);
-    const DataMarcacao = dataHora.toISOString().split('T')[0]; // "2024-10-01"
-    const HoraMarcacao = dataHora.toTimeString().slice(0, 5);  // "14:56"
-
-    // --- Monta payload para o TWO ---
     const payloadTWO = [{
-      NumeroREP: evento.deviceId || evento.device_id || '',
+      NumeroREP: String(evento.deviceId || evento.device_id || ''),
       NSR:       String(evento.id || evento.logId || ''),
       CPF:       cpf,
       DataMarcacao,
@@ -79,7 +71,6 @@ export default async function handler(req, res) {
 
     console.log('📤 Enviando para TWO:', JSON.stringify(payloadTWO, null, 2));
 
-    // --- Chama API do TWO ---
     const response = await fetch(TWO_API_URL, {
       method: 'POST',
       headers: {
@@ -90,7 +81,7 @@ export default async function handler(req, res) {
     });
 
     const resultado = await response.json();
-    console.log('✅ Resposta do TWO:', JSON.stringify(resultado, null, 2));
+    console.log('✅ Resposta TWO:', JSON.stringify(resultado, null, 2));
 
     return res.status(200).json({ ok: true, two_response: resultado });
 
