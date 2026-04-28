@@ -1,7 +1,9 @@
 // api/webhook-controlid.js
+// Recebe webhook do iDSecure e registra apontamento no TWO (diaristas)
+
 const TWO_AUTH_TOKEN = process.env.TWO_AUTH_TOKEN;
 const TWO_API_URL    = 'https://api1.tradingworks.net/v1/timecardcostcenter/addattendance';
-const TIMEZONE       = 'America/Sao_Paulo';
+const COST_CENTER    = process.env.COST_CENTER || 'BRE_BLITZ_DIA';
 
 export const config = {
   api: { bodyParser: false },
@@ -26,22 +28,16 @@ function formatarCPF(valor) {
 
 function formatarDataHoraBR(timestamp) {
   const d = new Date(timestamp);
-  const partes = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: TIMEZONE,
-    year:   '2-digit',
-    month:  'numeric',
-    day:    'numeric',
-    hour:   '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(d);
-
   const p = {};
-  partes.forEach(({ type, value }) => { p[type] = value; });
+  new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    year: '2-digit', month: 'numeric', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d).forEach(({ type, value }) => { p[type] = value; });
 
   return {
-    baseDate: `${p.month}/${p.day}/${p.year}`,  // 4/28/26
-    horaIn:   `${p.hour}:${p.minute}`,           // 13:14
+    baseDate: `${p.month}/${p.day}/${p.year}`,
+    hora:     `${p.hour}:${p.minute}`,
   };
 }
 
@@ -54,6 +50,7 @@ export default async function handler(req, res) {
     const evento = await lerBody(req);
     console.log('📥 Webhook recebido:', JSON.stringify(evento, null, 2));
 
+    // CPF
     const cpfBruto =
       evento.cpf         ||
       evento.CPF         ||
@@ -68,6 +65,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // Nome
     const nome =
       evento.name         ||
       evento.Name         ||
@@ -75,6 +73,7 @@ export default async function handler(req, res) {
       evento.nome         ||
       '';
 
+    // Timestamp (usa agora como fallback)
     const timestampBruto =
       evento.time      ||
       evento.dateTime  ||
@@ -82,17 +81,17 @@ export default async function handler(req, res) {
       evento.timestamp ||
       new Date().toISOString();
 
-    const { baseDate, horaIn } = formatarDataHoraBR(timestampBruto);
+    const { baseDate, hora } = formatarDataHoraBR(timestampBruto);
 
     const payload = [{
       PersonalDocument: formatarCPF(cpfBruto),
       Name:             nome,
       BaseDate:         baseDate,
-      In:               horaIn,
-      Out:              '',
+      In:               hora,
+      Out:              hora,
       InPause:          '',
       OutPause:         '',
-      CostCenterCode:   evento.CostCenterCode || '',
+      CostCenterCode:   evento.CostCenterCode || COST_CENTER,
       LocaleCode:       evento.LocaleCode     || '',
     }];
 
