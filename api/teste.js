@@ -6,17 +6,20 @@ export default async function handler(req, res) {
   const nums    = cpfRaw.replace(/\D/g, '').padStart(11, '0').slice(-11);
   const cpfMask = `${nums.slice(0,3)}.${nums.slice(3,6)}.${nums.slice(6,9)}-${nums.slice(9)}`;
 
-  const agora   = new Date();
-  const dataStr = agora.toISOString().split('T')[0];
-  const horaStr = agora.toTimeString().slice(0, 5);
-  const base    = { PersonalDocument: cpfMask, Name: nome };
+  const agora    = new Date();
+  const dataStr  = agora.toISOString().split('T')[0];
+  const horaStr  = agora.toTimeString().slice(0, 5);
+  const base     = { PersonalDocument: cpfMask, Name: nome, BaseDate: dataStr };
 
   const variacoes = [
-    { nome: 'DataMarcacao + HoraMarcacao', payload: [{ ...base, DataMarcacao: dataStr, HoraMarcacao: horaStr }] },
-    { nome: 'Data + Horario',              payload: [{ ...base, Data: dataStr, Horario: horaStr }] },
-    { nome: 'BaseDate + EventTime',        payload: [{ ...base, BaseDate: dataStr, EventTime: horaStr }] },
-    { nome: 'date + time',                 payload: [{ ...base, date: dataStr, time: horaStr }] },
-    { nome: 'EventDateTime combinado',     payload: [{ ...base, EventDateTime: `${dataStr}T${horaStr}:00` }] },
+    { nome: 'StartTime',     payload: [{ ...base, StartTime:     horaStr }] },
+    { nome: 'EntryTime',     payload: [{ ...base, EntryTime:     horaStr }] },
+    { nome: 'CheckInTime',   payload: [{ ...base, CheckInTime:   horaStr }] },
+    { nome: 'HoraEntrada',   payload: [{ ...base, HoraEntrada:   horaStr }] },
+    { nome: 'Hora',          payload: [{ ...base, Hora:          horaStr }] },
+    { nome: 'hora',          payload: [{ ...base, hora:          horaStr }] },
+    { nome: 'horario',       payload: [{ ...base, horario:       horaStr }] },
+    { nome: 'EventTime',     payload: [{ ...base, EventTime:     horaStr }] },
   ];
 
   const resultados = [];
@@ -29,7 +32,7 @@ export default async function handler(req, res) {
     const texto = await r.text();
     let resp;
     try { resp = JSON.parse(texto); } catch { resp = texto || '(vazio)'; }
-    resultados.push({ variacao: v.nome, status: r.status, resposta: resp });
+    resultados.push({ variacao: v.nome, resposta: resp });
   }
 
   return res.status(200).json({ resultados });
