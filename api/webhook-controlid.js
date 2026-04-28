@@ -25,6 +25,11 @@ function formatarCPF(valor) {
   return `${nums.slice(0,3)}.${nums.slice(3,6)}.${nums.slice(6,9)}-${nums.slice(9)}`;
 }
 
+function formatarData(timestamp) {
+  const d = new Date(timestamp);
+  return `${d.getMonth()+1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
@@ -34,7 +39,7 @@ export default async function handler(req, res) {
     const evento = await lerBody(req);
     console.log('📥 Webhook recebido:', JSON.stringify(evento, null, 2));
 
-    // Extrai CPF (aceita vários formatos do iDSecure)
+    // CPF
     const cpfBruto =
       evento.cpf         ||
       evento.CPF         ||
@@ -49,15 +54,15 @@ export default async function handler(req, res) {
       });
     }
 
-    // Extrai nome (opcional, usa CPF como fallback)
+    // Nome
     const nome =
-      evento.name        ||
-      evento.Name        ||
+      evento.name         ||
+      evento.Name         ||
       evento.person?.name ||
-      evento.nome        ||
-      cpfBruto;
+      evento.nome         ||
+      '';
 
-    // Extrai data/hora (usa agora como fallback)
+    // Data/hora
     const timestampBruto =
       evento.time      ||
       evento.dateTime  ||
@@ -66,24 +71,24 @@ export default async function handler(req, res) {
       new Date().toISOString();
 
     const dataHora = new Date(timestampBruto);
-    const data     = dataHora.toISOString().split('T')[0];   // "2026-04-28"
-    const horario  = dataHora.toTimeString().slice(0, 5);    // "15:54"
 
     const payload = [{
       PersonalDocument: formatarCPF(cpfBruto),
       Name:             nome,
-      data,
-      horario,
+      BaseDate:         formatarData(dataHora),
+      In:               dataHora.toTimeString().slice(0, 5),
+      Out:              '',
+      InPause:          '',
+      OutPause:         '',
+      CostCenterCode:   evento.CostCenterCode || '',
+      LocaleCode:       evento.LocaleCode     || '',
     }];
 
     console.log('📤 Enviando para TWO:', JSON.stringify(payload, null, 2));
 
     const response = await fetch(TWO_API_URL, {
       method: 'POST',
-      headers: {
-        'AUTH-TOKEN':   TWO_AUTH_TOKEN,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'AUTH-TOKEN': TWO_AUTH_TOKEN, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
 

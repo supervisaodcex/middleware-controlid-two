@@ -6,41 +6,38 @@ export default async function handler(req, res) {
   const nums    = cpfRaw.replace(/\D/g, '').padStart(11, '0').slice(-11);
   const cpfMask = `${nums.slice(0,3)}.${nums.slice(3,6)}.${nums.slice(6,9)}-${nums.slice(9)}`;
 
-  const agora   = new Date();
-  // Formato M/D/YY igual ao Excel do TWO (ex: 4/28/26)
-  const mes     = agora.getMonth() + 1;
-  const dia     = agora.getDate();
-  const ano     = String(agora.getFullYear()).slice(-2);
+  const agora  = new Date();
+  const mes    = agora.getMonth() + 1;
+  const dia    = agora.getDate();
+  const ano    = String(agora.getFullYear()).slice(-2);
   const baseDate = `${mes}/${dia}/${ano}`;
+  const horaIn   = agora.toTimeString().slice(0, 5);
 
-  const horaHHMM   = agora.toTimeString().slice(0, 5);
-  const horaHHMMSS = agora.toTimeString().slice(0, 8);
+  const payload = [{
+    PersonalDocument: cpfMask,
+    Name:             nome,
+    BaseDate:         baseDate,
+    In:               horaIn,
+    Out:              '',
+    InPause:          '',
+    OutPause:         '',
+    CostCenterCode:   '',
+    LocaleCode:       '',
+  }];
 
-  const base = { PersonalDocument: cpfMask, Name: nome, BaseDate: baseDate };
+  const r = await fetch('https://api1.tradingworks.net/v1/timecardcostcenter/addattendance', {
+    method: 'POST',
+    headers: { 'AUTH-TOKEN': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 
-  const variacoes = [
-    { nome: 'StartTime HH:MM',            payload: [{ ...base, StartTime:          horaHHMM }] },
-    { nome: 'StartTime HH:MM:SS',         payload: [{ ...base, StartTime:          horaHHMMSS }] },
-    { nome: 'EntryTime HH:MM',            payload: [{ ...base, EntryTime:          horaHHMM }] },
-    { nome: 'horario_de_entrada HH:MM',   payload: [{ ...base, horario_de_entrada: horaHHMM }] },
-    { nome: 'hora_entrada HH:MM',         payload: [{ ...base, hora_entrada:       horaHHMM }] },
-    { nome: 'Entrada HH:MM',              payload: [{ ...base, Entrada:            horaHHMM }] },
-    { nome: 'CheckIn HH:MM',              payload: [{ ...base, CheckIn:            horaHHMM }] },
-    { nome: 'HoraMarcacao HH:MM',         payload: [{ ...base, HoraMarcacao:       horaHHMM }] },
-  ];
+  const texto = await r.text();
+  let resultado;
+  try { resultado = JSON.parse(texto); } catch { resultado = texto || '(vazio)'; }
 
-  const resultados = [];
-  for (const v of variacoes) {
-    const r = await fetch('https://api1.tradingworks.net/v1/timecardcostcenter/addattendance', {
-      method: 'POST',
-      headers: { 'AUTH-TOKEN': token, 'Content-Type': 'application/json' },
-      body: JSON.stringify(v.payload),
-    });
-    const texto = await r.text();
-    let resp;
-    try { resp = JSON.parse(texto); } catch { resp = texto || '(vazio)'; }
-    resultados.push({ variacao: v.nome, baseDate, resposta: resp });
-  }
-
-  return res.status(200).json({ resultados });
+  return res.status(200).json({
+    payload_enviado: payload,
+    http_status:     r.status,
+    resposta_two:    resultado,
+  });
 }
