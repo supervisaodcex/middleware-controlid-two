@@ -6,12 +6,24 @@ export default async function handler(req, res) {
   const nums    = cpfRaw.replace(/\D/g, '').padStart(11, '0').slice(-11);
   const cpfMask = `${nums.slice(0,3)}.${nums.slice(3,6)}.${nums.slice(6,9)}-${nums.slice(9)}`;
 
-  const agora  = new Date();
-  const mes    = agora.getMonth() + 1;
-  const dia    = agora.getDate();
-  const ano    = String(agora.getFullYear()).slice(-2);
-  const baseDate = `${mes}/${dia}/${ano}`;
-  const horaIn   = agora.toTimeString().slice(0, 5);
+  const agora = new Date();
+
+  // Formata data e hora no fuso de Brasília (America/Sao_Paulo)
+  const partesBR = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    year:   '2-digit',
+    month:  'numeric',
+    day:    'numeric',
+    hour:   '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(agora);
+
+  const p = {};
+  partesBR.forEach(({ type, value }) => { p[type] = value; });
+
+  const baseDate = `${p.month}/${p.day}/${p.year}`;   // ex: 4/28/26
+  const horaIn   = `${p.hour}:${p.minute}`;            // ex: 13:14
 
   const payload = [{
     PersonalDocument: cpfMask,
@@ -36,6 +48,7 @@ export default async function handler(req, res) {
   try { resultado = JSON.parse(texto); } catch { resultado = texto || '(vazio)'; }
 
   return res.status(200).json({
+    hora_brasilia:   horaIn,
     payload_enviado: payload,
     http_status:     r.status,
     resposta_two:    resultado,
