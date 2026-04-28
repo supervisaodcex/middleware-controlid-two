@@ -1,36 +1,38 @@
 export default async function handler(req, res) {
-  const tokenEnv  = process.env.TWO_AUTH_TOKEN || '';
-  const cpf       = req.query.cpf || '53944108876';
+  const token = (process.env.TWO_AUTH_TOKEN || '').trim();
+  const cpfRaw = req.query.cpf || '53944108876';
 
-  // Teste 1 — usando variável de ambiente
-  const r1 = await fetch('https://api1.tradingworks.net/v1/attendances?Language=pt-br', {
-    headers: { 'AUTH-TOKEN': tokenEnv.trim() },
-  });
-  const t1 = await r1.text();
+  // Formata CPF com pontuação (igual ao app que funciona)
+  const nums = cpfRaw.replace(/\D/g, '').padStart(11, '0').slice(-11);
+  const cpf  = `${nums.slice(0,3)}.${nums.slice(3,6)}.${nums.slice(6,9)}-${nums.slice(9)}`;
 
-  // Teste 2 — POST com variável de ambiente
   const agora = new Date();
-  const r2 = await fetch('https://api1.tradingworks.net/v1/attendances/add', {
+  const payload = [{
+    cpf,
+    data:      agora.toISOString().split('T')[0],
+    horario:   agora.toTimeString().slice(0, 5),
+    numerorep: 'TESTE',
+    nsr:       '0',
+  }];
+
+  const r = await fetch('https://api1.tradingworks.net/v1/timecardcostcenter/addattendance', {
     method: 'POST',
-    headers: { 'AUTH-TOKEN': tokenEnv.trim(), 'Content-Type': 'application/json' },
-    body: JSON.stringify([{
-      CPF: cpf.replace(/\D/g, ''),
-      DataMarcacao: agora.toISOString().split('T')[0],
-      HoraMarcacao: agora.toTimeString().slice(0, 5),
-      NumeroREP: 'TESTE',
-      NSR: '0',
-    }]),
+    headers: {
+      'AUTH-TOKEN':   token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
   });
-  const t2 = await r2.text();
+
+  const texto = await r.text();
+  let resultado;
+  try { resultado = JSON.parse(texto); } catch { resultado = texto || '(vazio)'; }
 
   return res.status(200).json({
-    token_env: {
-      valor:       tokenEnv,   // mostra o token completo para confirmar
-      tamanho:     tokenEnv.length,
-    },
-    get_status:   r1.status,
-    get_corpo:    t1 || '(vazio)',
-    post_status:  r2.status,
-    post_corpo:   t2 || '(vazio)',
+    token_primeiros4: token.slice(0, 4),
+    cpf_formatado:    cpf,
+    payload_enviado:  payload,
+    http_status:      r.status,
+    resposta_two:     resultado,
   });
 }
