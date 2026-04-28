@@ -1,9 +1,9 @@
 // api/webhook-controlid.js
+// Recebe webhook do iDSecure e registra apontamento no TWO (diaristas)
 
 const TWO_AUTH_TOKEN = process.env.TWO_AUTH_TOKEN;
-const TWO_API_URL = 'https://api1.tradingworks.net/v1/attendances/add';
+const TWO_API_URL    = 'https://api1.tradingworks.net/v1/timecardcostcenter/addattendance';
 
-// Desativa o body parser automático do Vercel
 export const config = {
   api: { bodyParser: false },
 };
@@ -13,14 +13,16 @@ function lerBody(req) {
     let data = '';
     req.on('data', chunk => (data += chunk.toString()));
     req.on('end', () => {
-      try {
-        resolve(data ? JSON.parse(data) : {});
-      } catch (e) {
-        reject(new Error('JSON inválido: ' + data));
-      }
+      try { resolve(data ? JSON.parse(data) : {}); }
+      catch (e) { reject(new Error('JSON inválido: ' + data)); }
     });
     req.on('error', reject);
   });
+}
+
+function formatarCPF(valor) {
+  const nums = String(valor).replace(/\D/g, '').padStart(11, '0').slice(-11);
+  return `${nums.slice(0,3)}.${nums.slice(3,6)}.${nums.slice(6,9)}-${nums.slice(9)}`;
 }
 
 export default async function handler(req, res) {
@@ -30,9 +32,9 @@ export default async function handler(req, res) {
 
   try {
     const evento = await lerBody(req);
-
     console.log('📥 Webhook recebido:', JSON.stringify(evento, null, 2));
 
+    // Extrai CPF (aceita vários formatos do iDSecure)
     const cpfBruto =
       evento.cpf         ||
       evento.CPF         ||
@@ -42,13 +44,20 @@ export default async function handler(req, res) {
 
     if (!cpfBruto) {
       return res.status(400).json({
-        error: 'CPF não encontrado',
+        error:            'CPF não encontrado no payload',
         campos_recebidos: Object.keys(evento),
       });
     }
 
-    const cpf = String(cpfBruto).replace(/\D/g, '');
+    // Extrai nome (opcional, usa CPF como fallback)
+    const nome =
+      evento.name        ||
+      evento.Name        ||
+      evento.person?.name ||
+      evento.nome        ||
+      cpfBruto;
 
+    // Extrai data/hora (usa agora como fallback)
     const timestampBruto =
       evento.time      ||
       evento.dateTime  ||
@@ -56,19 +65,18 @@ export default async function handler(req, res) {
       evento.timestamp ||
       new Date().toISOString();
 
-    const dataHora     = new Date(timestampBruto);
-    const DataMarcacao = dataHora.toISOString().split('T')[0];
-    const HoraMarcacao = dataHora.toTimeString().slice(0, 5);
+    const dataHora = new Date(timestampBruto);
+    const data     = dataHora.toISOString().split('T')[0];   // "2026-04-28"
+    const horario  = dataHora.toTimeString().slice(0, 5);    // "15:54"
 
-    const payloadTWO = [{
-      NumeroREP: String(evento.deviceId || ''),
-      NSR:       String(evento.id || ''),
-      CPF:       cpf,
-      DataMarcacao,
-      HoraMarcacao,
+    const payload = [{
+      PersonalDocument: formatarCPF(cpfBruto),
+      Name:             nome,
+      data,
+      horario,
     }];
 
-    console.log('📤 Enviando para TWO:', JSON.stringify(payloadTWO, null, 2));
+    console.log('📤 Enviando para TWO:', JSON.stringify(payload, null, 2));
 
     const response = await fetch(TWO_API_URL, {
       method: 'POST',
@@ -76,12 +84,14 @@ export default async function handler(req, res) {
         'AUTH-TOKEN':   TWO_AUTH_TOKEN,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payloadTWO),
+      body: JSON.stringify(payload),
     });
 
-    const resultado = await response.json();
-    console.log('✅ Resposta TWO:', JSON.stringify(resultado, null, 2));
+    const texto = await response.text();
+    let resultado;
+    try { resultado = JSON.parse(texto); } catch { resultado = texto || '(vazio)'; }
 
+    console.log('✅ Resposta TWO:', JSON.stringify(resultado, null, 2));
     return res.status(200).json({ ok: true, two_response: resultado });
 
   } catch (err) {
