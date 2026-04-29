@@ -34,19 +34,9 @@ async function loginIDSecure() {
       systemId: Number(process.env.IDSECURE_SYSTEM_ID || 2),
     }),
   });
-
-  if (!r.ok) throw new Error(`Login iDSecure falhou: HTTP ${r.status}`);
   const data = await r.json();
-
-  // Estrutura real: { Data: [{ token: "..." }] }
-  const token =
-    data?.Data?.[0]?.token ||
-    data?.data?.[0]?.token ||
-    data?.token            ||
-    data?.accessToken      ||
-    null;
-
-  if (!token) throw new Error('Token não encontrado: ' + JSON.stringify(data).slice(0, 200));
+  const token = data?.Data?.[0]?.token;
+  if (!token) throw new Error('Token não encontrado no login');
   return token;
 }
 
@@ -61,39 +51,39 @@ async function buscarAcessos(bearerToken, minutosAtras = 10) {
     headers: { 'Authorization': `Bearer ${bearerToken}` },
   });
 
-  if (!r.ok) throw new Error(`Erro ao buscar logs: HTTP ${r.status}`);
   const data = await r.json();
-
-  // Log da estrutura real para diagnóstico
-  console.log('📄 Estrutura da resposta logs:', JSON.stringify(data).slice(0, 500));
-
-  return data?.logs || data?.data || data?.items || data?.Data || (Array.isArray(data) ? data : []);
+  // Estrutura real: { data: { data: [...] } }
+  return data?.data?.data || [];
 }
 
 async function enviarParaTWO(acessos) {
-  const payload = acessos.map(a => {
-    const cpfBruto  = a.cpf || a.document || a.personalDocument ||
-                      a.PersonalDocument || a.person?.cpf || '';
-    const nome      = a.name || a.personName || a.Name ||
-                      a.person?.name || '';
-    const timestamp = a.time || a.dateTime || a.eventDateTime ||
-                      a.Time || a.DateTime || a.createdAt || new Date().toISOString();
-    const { baseDate, hora } = formatarDataHoraBR(timestamp);
+  // Filtra apenas AccessGranted (event=7) e com CPF
+  const payload = acessos
+    .filter(a => a.eventDescription === 'AccessGranted')
+    .map(a => {
+      // CPF está em personDocuments[0].value
+      const cpfBruto = a.personDocuments?.[0]?.value ||
+                       a.documentDescValue?.match(/CPF=(\d+)/)?.[1] || '';
+      const nome     = a.personName || '';
+      const { baseDate, hora } = formatarDataHoraBR(a.time);
 
-    return {
-      PersonalDocument: formatarCPF(cpfBruto),
-      Name:             nome,
-      BaseDate:         baseDate,
-      In:               hora,
-      Out:              hora,
-      InPause:          '',
-      OutPause:         '',
-      CostCenterCode:   COST_CENTER,
-      LocaleCode:       '',
-    };
-  }).filter(a => a.PersonalDocument !== '000.000.000-00');
+      return {
+        PersonalDocument: formatarCPF(cpfBruto),
+        Name:             nome,
+        BaseDate:         baseDate,
+        In:               hora,
+        Out:              hora,
+        InPause:          '',
+        OutPause:         '',
+        CostCenterCode:   COST_CENTER,
+        LocaleCode:       '',
+      };
+    })
+    .filter(a => a.PersonalDocument !== '000.000.000-00');
 
   if (!payload.length) return { enviados: 0, erros: [], total_payload: 0 };
+
+  console.log('📤 Enviando para TWO:', JSON.stringify(payload, null, 2));
 
   const r = await fetch(TWO_API_URL, {
     method: 'POST',
@@ -118,17 +108,9 @@ export default async function handler(req, res) {
   const inicio = Date.now();
 
   try {
-    console.log('🔑 Login iDSecure...');
-    const token = await loginIDSecure();
-    console.log('✅ Login OK');
-
-    console.log('📋 Buscando acessos últimos 10min...');
+    const token   = await loginIDSecure();
     const acessos = await buscarAcessos(token, 10);
     console.log(`📋 ${acessos.length} acessos encontrados`);
-
-    if (acessos.length > 0) {
-      console.log('📄 Exemplo:', JSON.stringify(acessos[0], null, 2));
-    }
 
     let resultado = { enviados: 0, erros: [], total_payload: 0 };
     if (acessos.length > 0) {
