@@ -4,5 +4,11 @@
     "api/**/*.js": {
       "runtime": "@vercel/node@3"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/sincronizar",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }
