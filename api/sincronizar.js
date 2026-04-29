@@ -10,18 +10,17 @@ function formatarCPF(valor) {
   return `${nums.slice(0,3)}.${nums.slice(3,6)}.${nums.slice(6,9)}-${nums.slice(9)}`;
 }
 
-function formatarDataHoraBR(timestamp) {
-  const d = new Date(timestamp);
-  const p = {};
-  new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    year: '2-digit', month: 'numeric', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(d).forEach(({ type, value }) => { p[type] = value; });
-  return {
-    baseDate: `${p.month}/${p.day}/${p.year}`,
-    hora:     `${p.hour}:${p.minute}`,
-  };
+function extrairDataHora(timeStr) {
+  // iDSecure já retorna horário local de Brasília: "2026-04-29T14:37:00"
+  // Basta extrair diretamente sem converter fuso
+  const [datePart, timePart] = timeStr.split('T');
+  const [ano, mes, dia] = datePart.split('-');
+  const hora = timePart.slice(0, 5); // "14:37"
+
+  // Formato da data para o TWO: M/D/YY
+  const baseDate = `${parseInt(mes)}/${parseInt(dia)}/${ano.slice(-2)}`;
+
+  return { baseDate, hora };
 }
 
 async function loginIDSecure() {
@@ -47,25 +46,19 @@ async function buscarAcessos(bearerToken, minutosAtras = 10) {
   const url = `${IDSECURE_LOGS_URL}?pageSize=100&pageNumber=1&sortOrder=asc` +
               `&sortField=Time&dtStart=${dtStart}&dtEnd=${agora}&getPhotos=false`;
 
-  const r = await fetch(url, {
-    headers: { 'Authorization': `Bearer ${bearerToken}` },
-  });
-
+  const r    = await fetch(url, { headers: { 'Authorization': `Bearer ${bearerToken}` } });
   const data = await r.json();
-  // Estrutura real: { data: { data: [...] } }
   return data?.data?.data || [];
 }
 
 async function enviarParaTWO(acessos) {
-  // Filtra apenas AccessGranted (event=7) e com CPF
   const payload = acessos
     .filter(a => a.eventDescription === 'AccessGranted')
     .map(a => {
-      // CPF está em personDocuments[0].value
       const cpfBruto = a.personDocuments?.[0]?.value ||
                        a.documentDescValue?.match(/CPF=(\d+)/)?.[1] || '';
       const nome     = a.personName || '';
-      const { baseDate, hora } = formatarDataHoraBR(a.time);
+      const { baseDate, hora } = extrairDataHora(a.time);
 
       return {
         PersonalDocument: formatarCPF(cpfBruto),
